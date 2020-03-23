@@ -1,6 +1,6 @@
 # covid19
 
-[Exponential vs Sigmoidal Growth](https://nameless-forest-90246.herokuapp.com/voila/render/notebooks/bayesian_from_saved.ipynb)
+[Exponential vs Sigmoidal Growth](https://c19-bayesian-growth.herokuapp.com/voila/render/app.ipynb)
 
 Check out a Bayesian model of both an exponential and sigmoidal growth function for the number of Covid-19 cases for various countries.
 
