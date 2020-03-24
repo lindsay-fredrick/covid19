@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import requests
 import re
 import os
+import pandas as pd
 
 from sklearn.externals import joblib
 
@@ -124,6 +125,37 @@ def get_country(country, start_date='', end_date='', min_cases=10):
 
     dates = categories[start:end + 1]
     data = data[start:end + 1]
+
+    if max(data) < min_cases:
+        print('Warning, {:d} cases has not occured in this date range.')
+    else:
+        min_start = np.where(np.array(data) >= min_cases)[0][0]
+        data = data[min_start:]
+        dates = dates[min_start:]
+
+    return dates, np.arange(1, len(data) + 1), np.array(data)
+
+
+# better version that can grab more info
+def get_country_v2(country, start_date='', end_date='', min_cases=10):
+    country = country.title().replace(' ', '_')
+    file = os.path.join('csv_out', country + '.csv')
+    country_df = pd.read_csv(file)
+
+    start = country_df[country_df.Date == start_date].index
+    if len(start) == 0:
+        start = 0
+    else:
+        start = start[0]
+
+    end = country_df[country_df.Date == end_date].index
+    if len(end) == 0:
+        end = country_df.index[-1]
+    else:
+        end = end[0]
+
+    dates = country_df.loc[start:end + 1, 'Date'].values
+    data = country_df.loc[start:end + 1, 'Confirmed'].values
 
     if max(data) < min_cases:
         print('Warning, {:d} cases has not occured in this date range.')

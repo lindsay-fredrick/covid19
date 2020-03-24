@@ -14,10 +14,14 @@ def main(country_list, min_cases):
         print()
 
         # get data from website
-        dates, x, y = get_country(country, min_cases=min_cases)  # , 'Mar 02', 'Mar 17')
+        dates, x, y = get_country_v2(country, min_cases=min_cases)  # , 'Mar 02', 'Mar 17')
+        print(y)
 
         # rescale
         x_train, y_train, x_scale, y_scale, x_test, y_test, scaley, scalex = scale_data(x, y)
+
+        print(x_scale)
+        print(y_scale)
 
         # produce fits
         exp = exp_model(x_scale, y_scale)
@@ -26,7 +30,7 @@ def main(country_list, min_cases):
         sig_trace = train_model(sig, draws=5000, tune=5000)
 
         # save to file
-        tr_path = os.path.join('traces', country.lower())
+        tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
         if not os.path.isdir(tr_path):
             print('Directory for {:s} does not exist. Creating now.'.format(country.title()))
             os.mkdir(tr_path)
@@ -49,6 +53,8 @@ def main(country_list, min_cases):
 
 
 if __name__ == '__main__':
-    country_list = ['Italy', 'Germany', 'China', 'Spain', 'Canada', 'US']
+
+    country_list = ['Italy', 'Germany', 'China', 'Spain', 'Canada', 'US',
+                    'Canada British Columbia', 'Canada Alberta', 'Canada Ontario']
     min_cases = 100
     main(country_list, min_cases)
