@@ -19,8 +19,12 @@ def exp_model(x, y):
 
     with pm.Model() as model:
         # Priors for unknown model parameters
-        alpha = pm.Normal('alpha', mu=0, sigma=10)
-        beta = pm.Normal('beta', mu=0, sigma=10)
+        # alpha = pm.Normal('alpha', mu=0, sigma=10)
+        # beta = pm.Normal('beta', mu=0, sigma=10)
+        # sigma = pm.HalfNormal('sigma', sigma=1)
+
+        alpha = pm.HalfNormal('alpha', sigma=1)
+        beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
@@ -38,7 +42,11 @@ def sig_model(x, y):
 
     with pm.Model() as model:
         # Priors for unknown model parameters
-        alpha = pm.Normal('alpha', mu=0, sigma=10)
+        # alpha = pm.Normal('alpha', mu=0, sigma=10)
+        # beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
+        # sigma = pm.HalfNormal('sigma', sigma=1)
+
+        alpha = pm.HalfNormal('alpha', sigma=1)
         beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
@@ -62,7 +70,8 @@ def train_model(model, draws=5000, tune=5000, progressbar=True):
         trace = pm.sample(
             draws=draws,  # step=step, start=start,
             tune=tune,
-            random_seed=42, progressbar=True  # , cores=4
+            #random_seed=42,
+            progressbar=progressbar  # , cores=4
         )
 
     return trace
@@ -78,7 +87,7 @@ def predict_model(model, trace, samples):
 def predict_model_from_file(model, trace_path, samples):
     with model:
         trace = pm.load_trace(directory=trace_path)
-        y_hat = pm.sample_posterior_predictive(trace, samples=samples, progressbar=False)
+        y_hat = pm.sample_posterior_predictive(trace[500:], samples=samples, progressbar=False)
 
     return y_hat['y_obs']
 
@@ -216,14 +225,14 @@ def plot_country(country, num_days, ymax):
     exp_updated = exp_model(x_updated_scaled, y_updated)
     sig_updated = sig_model(x_updated_scaled, y_updated)
 
-    y_exp = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 5000)
-    y_sig = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 5000)
+    y_exp = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 1000)
+    y_sig = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 1000)
 
     y_exp_avg = np.mean(y_exp, axis=0).reshape(-1, 1)
-    y_exp_std = 2 * np.std(y_exp, axis=0).reshape(-1, 1)
+    y_exp_std = 1 * np.std(y_exp, axis=0).reshape(-1, 1)
 
     y_sig_avg = np.mean(y_sig, axis=0).reshape(-1, 1)
-    y_sig_std = 2 * np.std(y_sig, axis=0).reshape(-1, 1)
+    y_sig_std = 1 * np.std(y_sig, axis=0).reshape(-1, 1)
 
     y_exp_high = scaley.inverse_transform(y_exp_avg + y_exp_std).flatten()
     y_exp_low = scaley.inverse_transform(y_exp_avg - y_exp_std).flatten()
@@ -231,7 +240,12 @@ def plot_country(country, num_days, ymax):
     y_sig_high = scaley.inverse_transform(y_sig_avg + y_sig_std).flatten()
     y_sig_low = scaley.inverse_transform(y_sig_avg - y_sig_std).flatten()
 
+    y_exp_avg = scaley.inverse_transform(y_exp_avg).flatten()
+    y_sig_avg = scaley.inverse_transform(y_sig_avg).flatten()
+
     plt.figure(figsize=(10, 8))
+    plt.plot(x_updated, y_exp_avg)
+    plt.plot(x_updated, y_sig_avg)
     plt.fill_between(x_updated, y_exp_high, y_exp_low, alpha=0.5, label='Exponential')
     plt.fill_between(x_updated, y_sig_high, y_sig_low, alpha=0.5, label='Sigmoid')
     plt.scatter(x_train, y_train, label='Training Data')

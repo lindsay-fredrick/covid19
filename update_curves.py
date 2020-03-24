@@ -26,8 +26,8 @@ def main(country_list, min_cases):
         # produce fits
         exp = exp_model(x_scale, y_scale)
         sig = sig_model(x_scale, y_scale)
-        exp_trace = train_model(exp, draws=8000, tune=5000)
-        sig_trace = train_model(sig, draws=8000, tune=5000)
+        exp_trace = train_model(exp, draws=10000, tune=5000)
+        sig_trace = train_model(sig, draws=10000, tune=5000)
 
         # save to file
         tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
@@ -55,6 +55,7 @@ def main(country_list, min_cases):
 if __name__ == '__main__':
 
     country_list = ['Italy', 'Germany', 'China', 'Spain', 'Canada', 'US',
-                    'Canada British Columbia', 'Canada Alberta', 'Canada Ontario']
+                    'Canada British Columbia', 'Canada Alberta', 'Canada Ontario',
+                    'China Hong Kong', 'Korea South', 'Singapore']
     min_cases = 100
     main(country_list, min_cases)
