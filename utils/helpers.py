@@ -19,8 +19,8 @@ def exp_model(x, y):
 
     with pm.Model() as model:
         # Priors for unknown model parameters
-        alpha = pm.HalfNormal('alpha', mu=0, sigma=10)
-        beta = pm.HalfNormal('beta', mu=0, sigma=10)
+        alpha = pm.Normal('alpha', mu=0, sigma=10)
+        beta = pm.Normal('beta', mu=0, sigma=10)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
@@ -38,8 +38,8 @@ def sig_model(x, y):
 
     with pm.Model() as model:
         # Priors for unknown model parameters
-        alpha = pm.HalfNormal('alpha', mu=0, sigma=10)
-        beta = pm.HalfNormal('beta', mu=0, sigma=10, shape=2)
+        alpha = pm.Normal('alpha', mu=0, sigma=10)
+        beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
