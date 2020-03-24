@@ -19,8 +19,8 @@ def exp_model(x, y):
 
     with pm.Model() as model:
         # Priors for unknown model parameters
-        alpha = pm.Normal('alpha', mu=0, sigma=10)
-        beta = pm.Normal('beta', mu=0, sigma=10)
+        alpha = pm.HalfNormal('alpha', mu=0, sigma=10)
+        beta = pm.HalfNormal('beta', mu=0, sigma=10)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
@@ -38,8 +38,8 @@ def sig_model(x, y):
 
     with pm.Model() as model:
         # Priors for unknown model parameters
-        alpha = pm.Normal('alpha', mu=0, sigma=10)
-        beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
+        alpha = pm.HalfNormal('alpha', mu=0, sigma=10)
+        beta = pm.HalfNormal('beta', mu=0, sigma=10, shape=2)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
@@ -188,7 +188,7 @@ def scale_data(x, y):
 def plot_country(country, num_days, ymax):
     # dates, x, y = get_country(country, min_cases=100)
 
-    tr_path = os.path.join('traces', country.lower())
+    tr_path = os.path.join('traces', country.lower().replace(' ','_'))
 
     dates = joblib.load(os.path.join(tr_path, 'dates.pkl'))
     x = joblib.load(os.path.join(tr_path, 'x.pkl'))
@@ -216,8 +216,8 @@ def plot_country(country, num_days, ymax):
     exp_updated = exp_model(x_updated_scaled, y_updated)
     sig_updated = sig_model(x_updated_scaled, y_updated)
 
-    y_exp = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 1000)
-    y_sig = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 1000)
+    y_exp = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 5000)
+    y_sig = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 5000)
 
     y_exp_avg = np.mean(y_exp, axis=0).reshape(-1, 1)
     y_exp_std = 2 * np.std(y_exp, axis=0).reshape(-1, 1)
