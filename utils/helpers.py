@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, PowerTransformer, FunctionTransformer
 import pymc3 as pm
 from bs4 import BeautifulSoup
 import requests
@@ -23,12 +23,14 @@ def exp_model(x, y):
         # beta = pm.Normal('beta', mu=0, sigma=10)
         # sigma = pm.HalfNormal('sigma', sigma=1)
 
+        # Priors for unknown model parameters
         alpha = pm.HalfNormal('alpha', sigma=1)
         beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
-        mu = alpha * pm.math.exp(beta * x)
+        # mu = alpha*pm.math.exp(beta*x)
+        mu = pm.math.log(alpha)+(beta*x)
 
         # Likelihood (sampling distribution) of observations
         y_obs = pm.Normal('y_obs', mu=mu, sigma=sigma, observed=y)
@@ -46,12 +48,24 @@ def sig_model(x, y):
         # beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
         # sigma = pm.HalfNormal('sigma', sigma=1)
 
+        # older version
+        # alpha = pm.HalfNormal('alpha', sigma=1)
+        # beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
+        # sigma = pm.HalfNormal('sigma', sigma=1)
+
+        # Expected value of outcome
+        # mu = alpha / (1 + pm.math.exp(-(beta[0] * x + beta[1])))
+
+        # Priors for unknown model parameters
         alpha = pm.HalfNormal('alpha', sigma=1)
-        beta = pm.Normal('beta', mu=0, sigma=10, shape=2)
+        p0 = pm.HalfNormal('p0', sigma=1)
+        beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Expected value of outcome
-        mu = alpha / (1 + pm.math.exp(-(beta[0] * x + beta[1])))
+        # mu = pm.math.log(alpha) - pm.math.log((1+((alpha-p0)/p0)*pm.math.exp(-(beta*x))))
+        mu = alpha/(1+((alpha-p0)/p0)*pm.math.exp(-(beta*x)))
+        # mu = alpha/(1+pm.math.exp(-(beta[0]*x+beta[1])))
 
         # Likelihood (sampling distribution) of observations
         y_obs = pm.Normal('y_obs', mu=mu, sigma=sigma, observed=y)
@@ -173,7 +187,7 @@ def get_country_v2(country, start_date='', end_date='', min_cases=10):
         data = data[min_start:]
         dates = dates[min_start:]
 
-    return dates, np.arange(1, len(data) + 1), np.array(data)
+    return dates, np.arange(0, len(data)), np.array(data)
 
 
 def scale_data(x, y):
@@ -184,14 +198,18 @@ def scale_data(x, y):
     y_test = np.array(y[-3:])
 
     # rescale y
-    scaley = MinMaxScaler(feature_range=(0.1, 0.8))
-    y_scale = scaley.fit_transform(y_train.reshape(-1, 1)).flatten()
+    # use log scaling for exponential fit and min max for sigmoid
+    scale_sig = MinMaxScaler(feature_range=(0.1, 0.8))
+    # scale_exp = PowerTransformer(method='box-cox', standardize=False)
+    scale_exp = FunctionTransformer(np.log, np.exp, validate=True)
+    y_sig = scale_sig.fit_transform(y_train.reshape(-1, 1)).flatten()
+    y_exp = scale_exp.fit_transform(y_train.reshape(-1, 1)).flatten()
 
     # rescale x?
     scalex = MinMaxScaler()
     x_scale = scalex.fit_transform(x_train.reshape(-1, 1)).flatten()
 
-    return x_train, y_train, x_scale, y_scale, x_test, y_test, scaley, scalex
+    return x_train, y_train, x_scale, y_sig, y_exp, x_test, y_test, scale_sig, scale_exp, scalex
 
 
 def plot_country(country, num_days, ymax):
@@ -204,10 +222,12 @@ def plot_country(country, num_days, ymax):
     y = joblib.load(os.path.join(tr_path, 'y.pkl'))
 
     scalex = joblib.load(os.path.join(tr_path, 'scalex.pkl'))
-    scaley = joblib.load(os.path.join(tr_path, 'scaley.pkl'))
+    scale_exp = joblib.load(os.path.join(tr_path, 'scale_exp.pkl'))
+    scale_sig = joblib.load(os.path.join(tr_path, 'scale_sig.pkl'))
 
     x_scale = scalex.transform(x.reshape(-1, 1)).flatten()
-    y_scale = scaley.transform(y.reshape(-1, 1)).flatten()
+    y_sig = scale_sig.transform(y.reshape(-1, 1)).flatten()
+    y_exp = scale_exp.transform(y.reshape(-1, 1)).flatten()
 
     x_train = x[:-3]
     x_test = x[-3:]
@@ -217,35 +237,38 @@ def plot_country(country, num_days, ymax):
 
     last = len(x)
     num_days = num_days
-    extend = np.arange(last + 1, last + num_days + 1)
+    extend = np.arange(last, last + num_days)
     x_updated = np.append(x, extend)
     x_updated_scaled = scalex.transform(x_updated.reshape(-1, 1)).flatten()
     y_updated = np.empty(x_updated.shape)
 
-    exp_updated = exp_model(x_updated_scaled, y_updated)
+    # non transformed for exp
+    exp_updated = exp_model(x_updated, y_updated)
+
+    # transformed for sig
     sig_updated = sig_model(x_updated_scaled, y_updated)
 
-    y_exp = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 1000)
-    y_sig = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 1000)
+    y_exp_pred = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 2000)
+    y_sig_pred = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 2000)
 
-    y_exp_avg = np.mean(y_exp, axis=0).reshape(-1, 1)
-    y_exp_std = 1 * np.std(y_exp, axis=0).reshape(-1, 1)
+    y_exp_avg = np.mean(y_exp_pred, axis=0).reshape(-1, 1)
+    y_exp_std = 1 * np.std(y_exp_pred, axis=0).reshape(-1, 1)
 
-    y_sig_avg = np.mean(y_sig, axis=0).reshape(-1, 1)
-    y_sig_std = 1 * np.std(y_sig, axis=0).reshape(-1, 1)
+    y_sig_avg = np.mean(y_sig_pred, axis=0).reshape(-1, 1)
+    y_sig_std = 1 * np.std(y_sig_pred, axis=0).reshape(-1, 1)
 
-    y_exp_high = scaley.inverse_transform(y_exp_avg + y_exp_std).flatten()
-    y_exp_low = scaley.inverse_transform(y_exp_avg - y_exp_std).flatten()
+    y_exp_high = scale_exp.inverse_transform(y_exp_avg + y_exp_std).flatten()
+    y_exp_low = scale_exp.inverse_transform(y_exp_avg - y_exp_std).flatten()
 
-    y_sig_high = scaley.inverse_transform(y_sig_avg + y_sig_std).flatten()
-    y_sig_low = scaley.inverse_transform(y_sig_avg - y_sig_std).flatten()
+    y_sig_high = scale_sig.inverse_transform(y_sig_avg + y_sig_std).flatten()
+    y_sig_low = scale_sig.inverse_transform(y_sig_avg - y_sig_std).flatten()
 
-    y_exp_avg = scaley.inverse_transform(y_exp_avg).flatten()
-    y_sig_avg = scaley.inverse_transform(y_sig_avg).flatten()
+    y_exp_avg_1 = scale_exp.inverse_transform(y_exp_avg).flatten()
+    y_sig_avg_1 = scale_sig.inverse_transform(y_sig_avg).flatten()
 
     plt.figure(figsize=(10, 8))
-    plt.plot(x_updated, y_exp_avg)
-    plt.plot(x_updated, y_sig_avg)
+    plt.plot(x_updated, y_exp_avg_1)
+    plt.plot(x_updated, y_sig_avg_1)
     plt.fill_between(x_updated, y_exp_high, y_exp_low, alpha=0.5, label='Exponential')
     plt.fill_between(x_updated, y_sig_high, y_sig_low, alpha=0.5, label='Sigmoid')
     plt.scatter(x_train, y_train, label='Training Data')
