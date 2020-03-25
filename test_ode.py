@@ -159,7 +159,8 @@ if __name__ == '__main__':
         # prior = pm.sample_prior_predictive(progressbar=True)
         trace = pm.sample(500, tune=500,
                           #target_accept=0.9,
-                          cores=4, progressbar=True)
+                          #cores=1,
+                          progressbar=True)
         posterior_predictive = pm.sample_posterior_predictive(trace, progressbar=True)
 
         # data = az.from_pymc3(trace=trace, prior = prior, posterior_predictive = posterior_predictive)
@@ -173,3 +174,5 @@ if __name__ == '__main__':
 
     plt.plot(x_train, y0_mean)
     plt.show()
+
+    pm.save_trace(trace, directory='ode_test', overwrite=True)

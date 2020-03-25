@@ -8,7 +8,7 @@ import re
 import os
 import pandas as pd
 
-from sklearn.externals import joblib
+import joblib
 
 plt.style.use('seaborn-darkgrid')
 
@@ -24,7 +24,7 @@ def exp_model(x, y):
         # sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Priors for unknown model parameters
-        alpha = pm.HalfNormal('alpha', sigma=1)
+        alpha = pm.Normal('alpha', mu = np.exp(y[0]), sigma=1)
         beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
@@ -58,7 +58,7 @@ def sig_model(x, y):
 
         # Priors for unknown model parameters
         alpha = pm.HalfNormal('alpha', sigma=1)
-        p0 = pm.HalfNormal('p0', sigma=1)
+        p0 = pm.Normal('p0', mu = y[0], sigma=1)
         beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
