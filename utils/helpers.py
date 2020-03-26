@@ -9,6 +9,7 @@ from pymc3.ode import DifferentialEquation
 import os
 import pandas as pd
 from scipy.integrate import odeint
+import seaborn as sns
 
 
 import joblib
@@ -682,3 +683,122 @@ def sir_bayes_plot(country, num_days):
     # Parameters
     pm.plot_posterior(trace[:500])
     plt.show()
+
+
+# plots to show bayes results v2 - doesn't use model
+def sir_bayes_plot_v2(country, num_days):
+    # country = 'Canada British Columbia'
+    # dates, x, sus, inf = get_country_sir(country, min_cases=1)
+
+    tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
+
+    dates = joblib.load(os.path.join(tr_path, 'dates.pkl'))
+    x = joblib.load(os.path.join(tr_path, 'x_sir.pkl'))
+    sus = joblib.load(os.path.join(tr_path, 'sus_sir.pkl'))
+    inf = joblib.load(os.path.join(tr_path, 'inf_sir.pkl'))
+
+    # sus and inf are already normalized
+    # just normalize x
+    x_train = x[:-1]
+    x_test = x[-1:]
+
+    sus_train = sus[:-1]
+    sus_test = sus[-1:]
+
+    inf_train = inf[:-1]
+    inf_test = inf[-1:]
+
+    # make single array
+    y_train = np.hstack((sus_train.reshape(-1, 1), inf_train.reshape(-1, 1)))
+    y_test = np.hstack((sus_test.reshape(-1, 1), inf_test.reshape(-1, 1)))
+
+    y0 = [y_train[0][0], y_train[0][1]]
+
+    last = len(x)
+    extend = np.arange(last, last + num_days)
+    x_updated = np.append(x, extend)
+    y_updated = np.empty((x_updated.shape[0], y_train.shape[1]))
+
+    # sir = sir_model(x_updated, y_updated, y0)
+    # posterior_predictive, trace = predict_model_from_file(sir, os.path.join(tr_path, 'sir'), 1000)
+
+    posterior_predictive = joblib.load(os.path.join(tr_path, 'sir_y_predict.pkl'))
+    all_y = posterior_predictive['y_obs'][:, :len(x_updated), :]
+
+    y0_array = all_y[:, :, 0]
+    y1_array = all_y[:, :, 1]
+    y2_array = 1 - y0_array - y1_array
+    total_cases = y1_array + y2_array
+    new_cases = np.gradient(total_cases, axis=1)
+
+    y0_mean = np.mean(y0_array, axis=0)
+    y0_std = 2 * np.std(y0_array, axis=0)
+
+    y1_mean = np.mean(y1_array, axis=0)
+    y1_std = 2 * np.std(y1_array, axis=0)
+
+    y2_mean = np.mean(y2_array, axis=0)
+    y2_std = 2 * np.std(y2_array, axis=0)
+
+    total_cases_mean = np.mean(total_cases, axis=0)
+    total_cases_std = 2 * np.std(total_cases, axis=0)
+
+    new_cases_mean = np.mean(new_cases, axis=0)
+    new_cases_std = 2 * np.std(new_cases, axis=0)
+
+    # SIR Curves
+    fig, ax = plt.subplots(figsize=(16, 6))
+    # plt.sca(ax[0])
+    plt.fill_between(x_updated, y0_mean + y0_std, y0_mean - y0_std, alpha=0.5, color='g')
+    plt.plot(x_train, sus_train, c='g', label='suseptible')
+    plt.scatter(x_test, sus_test, color='g')
+    plt.plot(x_updated, y0_mean, '--g', alpha=0.7)
+
+    plt.fill_between(x_updated, y1_mean + y1_std, y1_mean - y1_std, alpha=0.5, color='r')
+    plt.plot(x_train, inf_train, c='r', label='infected')
+    plt.scatter(x_test, inf_test, color='r')
+    plt.plot(x_updated, y1_mean, '--r', alpha=0.7)
+
+    plt.fill_between(x_updated, y2_mean + y2_std, y2_mean - y2_std, alpha=0.5, color='b')
+    plt.plot(x_train, 1 - sus_train - inf_train, c='b', label='resistant')
+    plt.scatter(x_test, 1 - sus_test - inf_test, color='b')
+    plt.plot(x_updated, y2_mean, '--b', alpha=0.7)
+
+    plt.xlabel('Days')
+    plt.ylim([0, 1.01])
+    plt.xlim([x_updated[0], x_updated[-1]])
+    plt.title('Infection Rates')
+    plt.legend()
+    plt.show()
+
+    fig, ax = plt.subplots(1, 2, figsize=(16, 6))
+    # Total Cases
+
+    plt.sca(ax[0])
+    plt.plot(x_updated, total_cases_mean, '--')
+    plt.fill_between(x_updated, total_cases_mean + total_cases_std, total_cases_mean - total_cases_std)
+    plt.xlabel('Days')
+    plt.title('Total Cases')
+    plt.ylim([0, 1.01])
+    plt.xlim([x_updated[0], x_updated[-1]])
+
+    # New Cases
+    plt.sca(ax[1])
+    plt.plot(x_updated, new_cases_mean, '--')
+    plt.fill_between(x_updated, new_cases_mean + new_cases_std, new_cases_mean - new_cases_std)
+    plt.xlabel('Days')
+    plt.title('Number of New DAILY Cases')
+    # plt.ylim([0, 0.1])
+    plt.xlim([x_updated[0], x_updated[-1]])
+    plt.show()
+
+    # Parameters
+    trace = joblib.load(os.path.join(tr_path, 'sir_params.pkl'))
+    vars_list = ['R0', 'lambda', 'beta']
+    fig, ax = plt.subplots(1, len(vars_list), figsize=(16, 6))
+    for idx, var in enumerate(vars_list):
+        plt.sca(ax[idx])
+        sns.kdeplot(trace[var], shade=True)
+        plt.title('{:s} = {:0.2f}'.format(var, np.mean(trace[var])))
+    plt.show()
+
