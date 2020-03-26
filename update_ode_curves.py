@@ -43,10 +43,17 @@ if __name__ == '__main__':
 
         # produce fits
         # sir is with unscaled x, unscaled y
+        print('Initializing Model')
+        print()
         sir = sir_model(x_train, y_train, y0)
 
-        sir_trace = train_ode_model(sir, draws=2000, tune=1000)
+        print('Training Model')
+        print()
+        sir_trace = train_ode_model(sir, draws=2000, tune=500, cores=1)
 
+        print()
+        print('Saving Model')
+        print()
         # save to file
         tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
         if not os.path.isdir(tr_path):
