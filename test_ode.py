@@ -14,7 +14,7 @@ import re
 
 import os
 
-from sklearn.externals import joblib
+import joblib
 
 import pandas as pd
 
@@ -158,8 +158,8 @@ if __name__ == '__main__':
         print('Starting sampling')
         # prior = pm.sample_prior_predictive(progressbar=True)
         trace = pm.sample(500, tune=500,
-                          #target_accept=0.9,
-                          #cores=1,
+                          target_accept=0.9,
+                          cores=1,
                           progressbar=True)
         posterior_predictive = pm.sample_posterior_predictive(trace, progressbar=True)
 

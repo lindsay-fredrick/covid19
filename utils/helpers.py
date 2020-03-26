@@ -2,11 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler, PowerTransformer, FunctionTransformer
 import pymc3 as pm
-from bs4 import BeautifulSoup
+from pymc3.ode import DifferentialEquation
+#from bs4 import BeautifulSoup
 import requests
 import re
 import os
 import pandas as pd
+from scipy.integrate import odeint
+
 
 import joblib
 
@@ -103,10 +106,11 @@ def predict_model_from_file(model, trace_path, samples):
         trace = pm.load_trace(directory=trace_path)
         y_hat = pm.sample_posterior_predictive(trace[500:], samples=samples, progressbar=False)
 
-    return y_hat['y_obs']
+    return y_hat['y_obs'], trace
 
 
-# arbitrary country
+# arbitrary country (old version, don't need anymore)
+'''
 def get_country(country, start_date='', end_date='', min_cases=10):
     url = 'https://www.worldometers.info/coronavirus/country/' + country.lower() + '/'
     response = requests.get(url)
@@ -157,6 +161,7 @@ def get_country(country, start_date='', end_date='', min_cases=10):
         dates = dates[min_start:]
 
     return dates, np.arange(1, len(data) + 1), np.array(data)
+'''
 
 
 # better version that can grab more info
@@ -215,7 +220,7 @@ def scale_data(x, y):
 def plot_country(country, num_days, ymax):
     # dates, x, y = get_country(country, min_cases=100)
 
-    tr_path = os.path.join('traces', country.lower().replace(' ','_'))
+    tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
 
     dates = joblib.load(os.path.join(tr_path, 'dates.pkl'))
     x = joblib.load(os.path.join(tr_path, 'x.pkl'))
@@ -248,8 +253,8 @@ def plot_country(country, num_days, ymax):
     # transformed for sig
     sig_updated = sig_model(x_updated_scaled, y_updated)
 
-    y_exp_pred = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 2000)
-    y_sig_pred = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 2000)
+    y_exp_pred, _ = predict_model_from_file(exp_updated, os.path.join(tr_path, 'exp'), 1000)
+    y_sig_pred, _ = predict_model_from_file(sig_updated, os.path.join(tr_path, 'sig'), 1000)
 
     y_exp_avg = np.mean(y_exp_pred, axis=0).reshape(-1, 1)
     y_exp_std = 1 * np.std(y_exp_pred, axis=0).reshape(-1, 1)
@@ -283,4 +288,333 @@ def plot_country(country, num_days, ymax):
     plt.title(country.upper() + ' -- DAY ONE = {:s}'.format(dates[0].upper()))
     plt.xlabel('Days since hitting 100 cases.')
     plt.ylabel('Total number of cases.')
+    plt.show()
+
+
+'''
+ ---------------- FOR ODE SYSTEMS ----------------
+'''
+
+
+def get_country_sir(country, start_date='', end_date='', min_cases=10):
+    # update for any country
+    # italy
+    population = 60e6
+
+    # get population - only for canada for now
+    pop_df = pd.read_csv(os.path.join('data', 'pop_canada.csv'))
+
+    province = ''
+    if country.lower() != 'canada':
+        province = country[7:]
+    else:
+        province = 'Canada'
+
+    if province in pop_df['Geography'].values:
+        idx = pop_df[pop_df['Geography'] == province].index
+        population = pop_df.iloc[idx, -1].values[0]
+    else:
+        population = 1000000
+
+    if type(population) == str:
+        population = population.replace(',', '')
+        population = int(population)
+
+    # print('Population of {:s}: {:d}'.format(country, population))
+
+    country = country.title().replace(' ', '_')
+    file = os.path.join('csv_out', country + '.csv')
+    country_df = pd.read_csv(file)
+
+    start = country_df[country_df.Date == start_date].index
+    if len(start) == 0:
+        start = 0
+    else:
+        start = start[0]
+
+    end = country_df[country_df.Date == end_date].index
+    if len(end) == 0:
+        end = country_df.index[-1]
+    else:
+        end = end[0]
+
+    dates = country_df.loc[start:end + 1, 'Date'].values
+    data = country_df.loc[start:end + 1, 'Confirmed'].values
+    deaths = country_df.loc[start:end + 1, 'Deaths'].values
+    recovered = country_df.loc[start:end + 1, 'Recovered'].values
+
+    if max(data) < min_cases:
+        print('Warning, {:d} cases has not occurred in this date range.')
+    else:
+        min_start = np.where(np.array(data) >= min_cases)[0][0]
+        data = data[min_start:]
+        dates = dates[min_start:]
+        deaths = deaths[min_start:]
+        recovered = recovered[min_start:]
+
+    # infected = total cases - deaths - recoveries
+    infected = data - deaths - recovered
+
+    # susceptible = population - infected - deaths - recovered
+    susceptible = population - infected - deaths - recovered
+
+    return dates, np.arange(0, len(data)), susceptible / population, infected / population
+
+
+def sir_function(y, t, p):
+    # 'constants'
+    delta = p[0]  # rename to delta when testing
+    lmbda = p[1]
+    beta = p[2]*pm.math.exp(-t*delta)
+
+    # y = (s, i)
+
+    # susceptible differential
+    ds = -y[0] * y[1] * beta
+
+    # infected differential
+    di = y[0] * y[1] * beta - y[1] * lmbda
+
+    return [ds, di]
+
+
+def sir_model(x, y, y0):
+
+    x = np.asarray(x).flatten()
+    y = np.asarray(y)
+
+    sir_ode = DifferentialEquation(
+        func=sir_function,
+        times=x,
+        n_states=2,  # number of y (sus and inf)
+        n_theta=3,  # number of parameters (delta, lambda, beta)
+        t0=0
+    )
+
+    with pm.Model() as model:
+
+        # Overall model uncertainty
+        sigma = pm.HalfNormal('sigma', 3, shape=2)
+
+        # R0 is bounded below by 1 because we see an epidemic has occurred
+        R0 = pm.Bound(pm.Normal, lower=1)('R0', 2, 3)
+        # R0 = pm.Normal('R0', 2, 2)
+
+        # approximate lmbda as 1/9 to begin (between 1/5 and 1/13 ish)
+        lmbda = pm.Normal('lambda', 1/9, 0.1)
+
+        # allow delta to be whatever, but near 0
+        #delta = pm.Normal('delta', 0, 1)
+        beta = pm.Deterministic('beta', lmbda * R0)
+
+        # print('Setting up model')
+        sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
+        # sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
+
+        y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
+
+    return model
+
+
+def train_ode_model(model, draws=5000, tune=5000, progressbar=True):
+    with model:
+        # Use Maximum A Posteriori (MAP) optimisation as initial value for MCMC
+        # start = pm.find_MAP()
+
+        # Use the No-U-Turn Sampler
+        # step = pm.NUTS()
+
+        trace = pm.sample(
+            draws=draws,  # step=step, start=start,
+            tune=tune,
+            cores=1,
+            chains=2,
+            # random_seed=42,
+            progressbar=progressbar  # , cores=4
+        )
+
+    return trace
+
+
+# def system of equations
+def sir_function_static(y, t, p):
+    # 'constants'
+    delta = p[0]  # rename to delta when testing
+    lmbda = p[1]
+    beta = p[2] * np.exp(-t * delta)
+
+    # y = (s, i)
+
+    # susceptible differential
+    ds = -y[0] * y[1] * beta
+
+    # infected differential
+    di = y[0] * y[1] * beta - y[1] * lmbda
+
+    return [ds, di]
+
+
+# def function that will use odeint
+def sir_solution_static(t, p, y0):
+    y = odeint(sir_function_static, y0, t, args=(p,))
+    return y
+
+
+# static plots for scipy model
+def sir_plot_static(delta=0, R0=3, gamma=1 / 9):
+    # R0 = 3
+    # gamma = 1/9
+    beta = R0*gamma
+    # delta = 0
+    x = np.arange(200)
+    y0 = [0.99999, 0.00001]
+
+    y = sir_solution_static(x, [delta, gamma, beta], y0)
+    sus = y[:, 0]
+    inf = y[:, 1]
+    res = 1 - sus - inf
+    total_cases = inf + res
+    new_cases = np.gradient(total_cases)
+
+    # plots : SIR together?
+    fig, ax = plt.subplots(1, 3, figsize=(20, 8))
+    plt.sca(ax[0])
+    plt.plot(x, sus, color='g', label='Susceptible')
+    plt.plot(x, inf, color='r', label='Infected')
+    plt.plot(x, res, color='b', label='Resistant')
+    plt.legend(loc='center right')
+    plt.xlabel('Days')
+    plt.ylim([0, 1.01])
+    plt.xlim([x[0], x[-1]])
+    plt.title('Infection Rates')
+
+    # total cases
+    plt.sca(ax[1])
+    plt.plot(x, total_cases)
+    plt.xlabel('Days')
+    plt.title('Total Cases')
+    plt.ylim([0, 1.01])
+    plt.xlim([x[0], x[-1]])
+
+    # new cases
+    plt.sca(ax[2])
+    plt.plot(x, new_cases, label='New Cases')
+    plt.xlabel('Days')
+    plt.title('Number of New DAILY Cases')
+    plt.ylim([0, 0.1])
+    plt.xlim([x[0], x[-1]])
+    plt.text(0.8, 0.8, r'$\delta = {:0.3f}$'.format(delta), transform=ax[2].transAxes, horizontalalignment='center',
+             fontsize=14)
+    # plt.legend()
+    plt.show()
+
+
+# plots to show bayes results
+def sir_bayes_plot(country, num_days):
+    # country = 'Canada British Columbia'
+    # dates, x, sus, inf = get_country_sir(country, min_cases=1)
+
+    tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
+
+    dates = joblib.load(os.path.join(tr_path, 'dates.pkl'))
+    x = joblib.load(os.path.join(tr_path, 'x_sir.pkl'))
+    sus = joblib.load(os.path.join(tr_path, 'sus_sir.pkl'))
+    inf = joblib.load(os.path.join(tr_path, 'inf_sir.pkl'))
+
+    # sus and inf are already normalized
+    # just normalize x
+    x_train = x[:-1]
+    x_test = x[-1:]
+
+    sus_train = sus[:-1]
+    sus_test = sus[-1:]
+
+    inf_train = inf[:-1]
+    inf_test = inf[-1:]
+
+    # make single array
+    y_train = np.hstack((sus_train.reshape(-1, 1), inf_train.reshape(-1, 1)))
+    y_test = np.hstack((sus_test.reshape(-1, 1), inf_test.reshape(-1, 1)))
+
+    y_train.shape
+
+    y0 = [y_train[0][0], y_train[0][1]]
+
+    last = len(x)
+    extend = np.arange(last, last + num_days)
+    x_updated = np.append(x, extend)
+    y_updated = np.empty((x_updated.shape[0], y_train.shape[1]))
+
+    sir = sir_model(x_updated, y_updated, y0)
+    posterior_predictive, trace = predict_model_from_file(sir, os.path.join(tr_path, 'sir'), 1000)
+
+    all_y = posterior_predictive
+    y0_array = all_y[:, :, 0]
+    y1_array = all_y[:, :, 1]
+    y2_array = 1 - y0_array - y1_array
+    total_cases = y1_array + y2_array
+    new_cases = np.gradient(total_cases, axis=1)
+
+    y0_mean = np.mean(y0_array, axis=0)
+    y0_std = 2 * np.std(y0_array, axis=0)
+
+    y1_mean = np.mean(y1_array, axis=0)
+    y1_std = 2 * np.std(y1_array, axis=0)
+
+    y2_mean = np.mean(y2_array, axis=0)
+    y2_std = 2 * np.std(y2_array, axis=0)
+
+    total_cases_mean = np.mean(total_cases, axis=0)
+    total_cases_std = 2 * np.std(total_cases, axis=0)
+
+    new_cases_mean = np.mean(new_cases, axis=0)
+    new_cases_std = 2 * np.std(new_cases, axis=0)
+
+    # SIR Curves
+    fig, ax = plt.subplots(1, 3, figsize=(20, 8))
+
+    plt.sca(ax[0])
+    plt.fill_between(x_updated, y0_mean + y0_std, y0_mean - y0_std, alpha=0.5, color='g')
+    plt.plot(x_train, sus_train, c='g', label='suseptible')
+    plt.scatter(x_test, sus_test, color='g')
+    plt.plot(x_updated, y0_mean, '--g', alpha=0.7)
+
+    plt.fill_between(x_updated, y1_mean + y1_std, y1_mean - y1_std, alpha=0.5, color='r')
+    plt.plot(x_train, inf_train, c='r', label='infected')
+    plt.scatter(x_test, inf_test, color='r')
+    plt.plot(x_updated, y1_mean, '--r', alpha=0.7)
+
+    plt.fill_between(x_updated, y2_mean + y2_std, y2_mean - y2_std, alpha=0.5, color='b')
+    plt.plot(x_train, 1 - sus_train - inf_train, c='b', label='resistant')
+    plt.scatter(x_test, 1 - sus_test - inf_test, color='b')
+    plt.plot(x_updated, y2_mean, '--b', alpha=0.7)
+
+    plt.xlabel('Days')
+    plt.ylim([0, 1.01])
+    plt.xlim([x_updated[0], x_updated[-1]])
+    plt.title('Infection Rates')
+    plt.legend()
+
+    # Total Cases
+
+    plt.sca(ax[1])
+    plt.plot(x_updated, total_cases_mean, '--')
+    plt.fill_between(x_updated, total_cases_mean + total_cases_std, total_cases_mean - total_cases_std)
+    plt.xlabel('Days')
+    plt.title('Total Cases')
+    plt.ylim([0, 1.01])
+    plt.xlim([x_updated[0], x_updated[-1]])
+
+    # New Cases
+    plt.sca(ax[2])
+    plt.plot(x_updated, new_cases_mean, '--')
+    plt.fill_between(x_updated, new_cases_mean + new_cases_std, new_cases_mean - new_cases_std)
+    plt.xlabel('Days')
+    plt.title('Number of New DAILY Cases')
+    # plt.ylim([0, 0.1])
+    plt.xlim([x_updated[0], x_updated[-1]])
+    plt.show()
+
+    # Parameters
+    pm.plot_posterior(trace[:500])
     plt.show()
