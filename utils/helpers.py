@@ -361,6 +361,23 @@ def get_country_sir(country, start_date='', end_date='', min_cases=10):
     return dates, np.arange(0, len(data)), susceptible / population, infected / population
 
 
+def sir_delta_function(y, t, p):
+    # 'constants'
+    delta = p[0]  # rename to delta when testing
+    lmbda = p[1]
+    beta = p[2]*pm.math.exp(-t*delta)
+
+    # y = (s, i)
+
+    # susceptible differential
+    ds = -y[0] * y[1] * beta
+
+    # infected differential
+    di = y[0] * y[1] * beta - y[1] * lmbda
+
+    return [ds, di]
+
+
 def sir_function(y, t, p):
     # 'constants'
     beta = p[0]  # rename to delta when testing
@@ -376,6 +393,46 @@ def sir_function(y, t, p):
     di = y[0] * y[1] * beta - y[1] * lmbda
 
     return [ds, di]
+
+
+def sir_delta_model(x, y, y0):
+
+    x = np.asarray(x).flatten()
+    y = np.asarray(y)
+
+    sir_ode = DifferentialEquation(
+        func=sir_function,
+        times=x,
+        n_states=2,  # number of y (sus and inf)
+        n_theta=3,  # number of parameters (delta, lambda, beta)
+        t0=0
+    )
+
+    with pm.Model() as model:
+
+        # Overall model uncertainty
+        sigma = pm.HalfNormal('sigma', 3, shape=2)
+        #sigma = 0.1
+
+        # R0 is bounded below by 1 because we see an epidemic has occurred
+        R0 = pm.Bound(pm.Normal, lower=1)('R0', 2, 3)
+        # R0 = pm.Normal('R0', 2, 2)
+
+        # approximate lmbda as 1/9 to begin (between 1/5 and 1/13 ish)
+        # lmbda = pm.Normal('lambda', 1/9, 0.1)
+        lmbda = 1/9
+
+        # allow delta to be whatever, but near 0
+        delta = pm.Normal('delta', 0, 0.1)
+        beta = pm.Deterministic('beta', lmbda * R0)
+
+        # print('Setting up model')
+        sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
+        # sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
+
+        y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
+
+    return model
 
 
 def sir_model(x, y, y0):
@@ -479,8 +536,9 @@ def sir_plot_static(delta=0, R0=3, gamma=1 / 9):
     new_cases = np.gradient(total_cases)
 
     # plots : SIR together?
-    fig, ax = plt.subplots(figsize=(16, 6))
-    #plt.sca(ax[0])
+    fig, ax = plt.subplots(figsize=(20, 10))
+    plt.subplot(2,1,1)
+    #plt.sca(ax[0, :])
     plt.plot(x, sus, color='g', label='Susceptible')
     plt.plot(x, inf, color='r', label='Infected')
     plt.plot(x, res, color='b', label='Resistant')
@@ -489,11 +547,12 @@ def sir_plot_static(delta=0, R0=3, gamma=1 / 9):
     plt.ylim([0, 1.01])
     plt.xlim([x[0], x[-1]])
     plt.title('Infection Rates')
-    plt.show()
+    #plt.show()
 
-    fig, ax = plt.subplots(1, 2, figsize = (16,6))
+    #fig, ax = plt.subplots(1, 2, figsize = (16,6))
     # total cases
-    plt.sca(ax[0])
+    plt.subplot(2,2,3)
+    #plt.sca(ax[1,0])
     plt.plot(x, total_cases)
     plt.xlabel('Days')
     plt.title('Total Cases')
@@ -501,13 +560,15 @@ def sir_plot_static(delta=0, R0=3, gamma=1 / 9):
     plt.xlim([x[0], x[-1]])
 
     # new cases
-    plt.sca(ax[1])
+    plt.subplot(2,2,4)
+    #plt.sca(ax[1,1])
+    subax = plt.gca()
     plt.plot(x, new_cases, label='New Cases')
     plt.xlabel('Days')
     plt.title('Number of New DAILY Cases')
     plt.ylim([0, 0.1])
     plt.xlim([x[0], x[-1]])
-    plt.text(0.8, 0.8, r'$\delta = {:0.3f}$'.format(delta), transform=ax[1].transAxes, horizontalalignment='center',
+    plt.text(0.8, 0.8, r'$\delta = {:0.3f}$'.format(delta), transform=subax.transAxes, horizontalalignment='center',
              fontsize=14)
     # plt.legend()
     plt.show()
