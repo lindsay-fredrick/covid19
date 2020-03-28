@@ -6,6 +6,7 @@ from pymc3.ode import DifferentialEquation
 #from bs4 import BeautifulSoup
 #import requests
 #import re
+import theano.tensor as tt
 import os
 import pandas as pd
 from scipy.integrate import odeint
@@ -402,7 +403,7 @@ def sir_delta_model(x, y, y0):
     y = np.asarray(y)
 
     sir_ode = DifferentialEquation(
-        func=sir_function,
+        func=sir_delta_function,
         times=x,
         n_states=2,  # number of y (sus and inf)
         n_theta=3,  # number of parameters (delta, lambda, beta)
@@ -412,16 +413,28 @@ def sir_delta_model(x, y, y0):
     with pm.Model() as model:
 
         # Overall model uncertainty
-        sigma = pm.HalfNormal('sigma', 3, shape=2)
+        # sigma = pm.HalfNormal('sigma', 3, shape=2)
         #sigma = 0.1
+
+        # Note that we access the distribution for the standard
+        # deviations, and do not create a new random variable.
+        dim = 2
+        sd_dist = pm.HalfCauchy.dist(beta=2.5)
+        packed_chol = pm.LKJCholeskyCov('chol_cov', n=dim, eta=1, sd_dist=sd_dist)
+        # compute the covariance matrix
+        chol = pm.expand_packed_triangular(dim, packed_chol, lower=True)
+
+        # Extract the cov matrix and standard deviations
+        cov = tt.dot(chol, chol.T)
+        sd = pm.Deterministic('sd', tt.sqrt(tt.diag(cov)))
 
         # R0 is bounded below by 1 because we see an epidemic has occurred
         R0 = pm.Bound(pm.Normal, lower=1)('R0', 2, 3)
         # R0 = pm.Normal('R0', 2, 2)
 
         # approximate lmbda as 1/9 to begin (between 1/5 and 1/13 ish)
-        # lmbda = pm.Normal('lambda', 1/9, 0.1)
-        lmbda = 1/9
+        lmbda = pm.Normal('lambda', 1/9, 0.1)
+        # lmbda = 1/10
 
         # allow delta to be whatever, but near 0
         delta = pm.Normal('delta', 0, 0.1)
@@ -431,7 +444,7 @@ def sir_delta_model(x, y, y0):
         sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
         # sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
 
-        y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
+        y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
 
     return model
 
@@ -686,16 +699,21 @@ def sir_bayes_plot(country, num_days):
 
 
 # plots to show bayes results v2 - doesn't use model
-def sir_bayes_plot_v2(country, num_days):
+def sir_bayes_plot_v2(country, num_days, delta_case = False):
     # country = 'Canada British Columbia'
     # dates, x, sus, inf = get_country_sir(country, min_cases=1)
 
+    if delta_case:
+        second_dir = 'sir_delta'
+    else:
+        second_dir = 'sir'
+
     tr_path = os.path.join('traces', country.lower().replace(' ', '_'))
 
-    dates = joblib.load(os.path.join(tr_path, 'dates.pkl'))
-    x = joblib.load(os.path.join(tr_path, 'x_sir.pkl'))
-    sus = joblib.load(os.path.join(tr_path, 'sus_sir.pkl'))
-    inf = joblib.load(os.path.join(tr_path, 'inf_sir.pkl'))
+    dates = joblib.load(os.path.join(tr_path, 'dates_{:s}.pkl'.format(second_dir)))
+    x = joblib.load(os.path.join(tr_path, 'x_{:s}.pkl'.format(second_dir)))
+    sus = joblib.load(os.path.join(tr_path, 'sus_{:s}.pkl'.format(second_dir)))
+    inf = joblib.load(os.path.join(tr_path, 'inf_{:s}.pkl'.format(second_dir)))
 
     # sus and inf are already normalized
     # just normalize x
@@ -722,7 +740,7 @@ def sir_bayes_plot_v2(country, num_days):
     # sir = sir_model(x_updated, y_updated, y0)
     # posterior_predictive, trace = predict_model_from_file(sir, os.path.join(tr_path, 'sir'), 1000)
 
-    posterior_predictive = joblib.load(os.path.join(tr_path, 'sir_y_predict.pkl'))
+    posterior_predictive = joblib.load(os.path.join(tr_path, second_dir+'_y_predict.pkl'))
     all_y = posterior_predictive['y_obs'][:, :len(x_updated), :]
 
     y0_array = all_y[:, :, 0]
@@ -793,12 +811,12 @@ def sir_bayes_plot_v2(country, num_days):
     plt.show()
 
     # Parameters
-    trace = joblib.load(os.path.join(tr_path, 'sir_params.pkl'))
+    trace = joblib.load(os.path.join(tr_path, second_dir+'_params.pkl'))
     vars_list = ['R0', 'lambda', 'beta']
     fig, ax = plt.subplots(1, len(vars_list), figsize=(16, 6))
     for idx, var in enumerate(vars_list):
         plt.sca(ax[idx])
         sns.kdeplot(trace[var], shade=True)
-        plt.title('{:s} = {:0.2f}'.format(var, np.mean(trace[var])))
+        plt.title('{:s} = {:0.3f}'.format(var, np.mean(trace[var])))
     plt.show()
 
