@@ -29,7 +29,7 @@ def exp_model(x, y):
         # sigma = pm.HalfNormal('sigma', sigma=1)
 
         # Priors for unknown model parameters
-        alpha = pm.Normal('alpha', mu = np.exp(y[0]), sigma=1)
+        alpha = pm.Normal('alpha', mu=np.exp(y[0]), sigma=1)
         beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
@@ -316,7 +316,7 @@ def get_country_sir(country, start_date='', end_date='', min_cases=10):
         idx = pop_df[pop_df['Geography'] == province].index
         population = pop_df.iloc[idx, -1].values[0]
     else:
-        population = 1000000
+        population = 60e6
 
     if type(population) == str:
         population = population.replace(',', '')
@@ -413,20 +413,20 @@ def sir_delta_model(x, y, y0):
     with pm.Model() as model:
 
         # Overall model uncertainty
-        # sigma = pm.HalfNormal('sigma', 3, shape=2)
-        #sigma = 0.1
+        sigma = pm.HalfNormal('sigma', 3, shape=2)
+        # sigma = 0.1
 
         # Note that we access the distribution for the standard
         # deviations, and do not create a new random variable.
-        dim = 2
-        sd_dist = pm.HalfCauchy.dist(beta=2.5)
-        packed_chol = pm.LKJCholeskyCov('chol_cov', n=dim, eta=1, sd_dist=sd_dist)
+        # dim = 2
+        # sd_dist = pm.HalfCauchy.dist(beta=2.5)
+        # packed_chol = pm.LKJCholeskyCov('chol_cov', n=dim, eta=1, sd_dist=sd_dist)
         # compute the covariance matrix
-        chol = pm.expand_packed_triangular(dim, packed_chol, lower=True)
+        # chol = pm.expand_packed_triangular(dim, packed_chol, lower=True)
 
         # Extract the cov matrix and standard deviations
-        cov = tt.dot(chol, chol.T)
-        sd = pm.Deterministic('sd', tt.sqrt(tt.diag(cov)))
+        # cov = tt.dot(chol, chol.T)
+        # sd = pm.Deterministic('sd', tt.sqrt(tt.diag(cov)))
 
         # R0 is bounded below by 1 because we see an epidemic has occurred
         R0 = pm.Bound(pm.Normal, lower=1)('R0', 2, 3)
@@ -444,7 +444,8 @@ def sir_delta_model(x, y, y0):
         sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
         # sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
 
-        y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
+        #y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
+        y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
 
     return model
 
@@ -465,8 +466,20 @@ def sir_model(x, y, y0):
     with pm.Model() as model:
 
         # Overall model uncertainty
-        sigma = pm.HalfNormal('sigma', 3, shape=2)
-        #sigma = 0.1
+        # sigma = pm.HalfNormal('sigma', 3, shape=2)
+        # sigma = 0.1
+
+        # Note that we access the distribution for the standard
+        # deviations, and do not create a new random variable.
+        dim = 2
+        sd_dist = pm.HalfCauchy.dist(beta=2.5)
+        packed_chol = pm.LKJCholeskyCov('chol_cov', n=dim, eta=1, sd_dist=sd_dist)
+        # compute the covariance matrix
+        chol = pm.expand_packed_triangular(dim, packed_chol, lower=True)
+
+        # Extract the cov matrix and standard deviations
+        cov = tt.dot(chol, chol.T)
+        sd = pm.Deterministic('sd', tt.sqrt(tt.diag(cov)))
 
         # R0 is bounded below by 1 because we see an epidemic has occurred
         R0 = pm.Bound(pm.Normal, lower=1)('R0', 2, 3)
@@ -484,7 +497,7 @@ def sir_model(x, y, y0):
         # sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
         sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
 
-        y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
+        y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
 
     return model
 
@@ -699,7 +712,7 @@ def sir_bayes_plot(country, num_days):
 
 
 # plots to show bayes results v2 - doesn't use model
-def sir_bayes_plot_v2(country, num_days, delta_case = False):
+def sir_bayes_plot_v2(country, num_days, delta_case=False):
     # country = 'Canada British Columbia'
     # dates, x, sus, inf = get_country_sir(country, min_cases=1)
 
@@ -749,20 +762,20 @@ def sir_bayes_plot_v2(country, num_days, delta_case = False):
     total_cases = y1_array + y2_array
     new_cases = np.gradient(total_cases, axis=1)
 
-    y0_mean = np.mean(y0_array, axis=0)
-    y0_std = 2 * np.std(y0_array, axis=0)
+    y0_mean = np.nanmean(y0_array, axis=0)
+    y0_std = 2 * np.nanstd(y0_array, axis=0)
 
-    y1_mean = np.mean(y1_array, axis=0)
-    y1_std = 2 * np.std(y1_array, axis=0)
+    y1_mean = np.nanmean(y1_array, axis=0)
+    y1_std = 2 * np.nanstd(y1_array, axis=0)
 
-    y2_mean = np.mean(y2_array, axis=0)
-    y2_std = 2 * np.std(y2_array, axis=0)
+    y2_mean = np.nanmean(y2_array, axis=0)
+    y2_std = 2 * np.nanstd(y2_array, axis=0)
 
-    total_cases_mean = np.mean(total_cases, axis=0)
-    total_cases_std = 2 * np.std(total_cases, axis=0)
+    total_cases_mean = np.nanmean(total_cases, axis=0)
+    total_cases_std = 2 * np.nanstd(total_cases, axis=0)
 
-    new_cases_mean = np.mean(new_cases, axis=0)
-    new_cases_std = 2 * np.std(new_cases, axis=0)
+    new_cases_mean = np.nanmean(new_cases, axis=0)
+    new_cases_std = 2 * np.nanstd(new_cases, axis=0)
 
     # SIR Curves
     fig, ax = plt.subplots(figsize=(16, 6))
@@ -794,7 +807,7 @@ def sir_bayes_plot_v2(country, num_days, delta_case = False):
 
     plt.sca(ax[0])
     plt.plot(x_updated, total_cases_mean, '--')
-    plt.fill_between(x_updated, total_cases_mean + total_cases_std, total_cases_mean - total_cases_std)
+    plt.fill_between(x_updated, total_cases_mean + total_cases_std, total_cases_mean - total_cases_std, alpha=0.5)
     plt.xlabel('Days')
     plt.title('Total Cases')
     plt.ylim([0, 1.01])
@@ -803,16 +816,19 @@ def sir_bayes_plot_v2(country, num_days, delta_case = False):
     # New Cases
     plt.sca(ax[1])
     plt.plot(x_updated, new_cases_mean, '--')
-    plt.fill_between(x_updated, new_cases_mean + new_cases_std, new_cases_mean - new_cases_std)
+    plt.fill_between(x_updated, new_cases_mean + new_cases_std, new_cases_mean - new_cases_std, alpha=0.5)
     plt.xlabel('Days')
     plt.title('Number of New DAILY Cases')
-    # plt.ylim([0, 0.1])
+    plt.ylim([0, 1.01*np.max(new_cases_mean+new_cases_std)])
     plt.xlim([x_updated[0], x_updated[-1]])
     plt.show()
 
     # Parameters
     trace = joblib.load(os.path.join(tr_path, second_dir+'_params.pkl'))
-    vars_list = ['R0', 'lambda', 'beta']
+    if not delta_case:
+        vars_list = ['R0', 'lambda', 'beta']
+    else:
+        vars_list = ['R0', 'lambda', 'beta', 'delta']
     fig, ax = plt.subplots(1, len(vars_list), figsize=(16, 6))
     for idx, var in enumerate(vars_list):
         plt.sca(ax[idx])
