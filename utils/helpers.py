@@ -443,15 +443,15 @@ def sir_delta_model(x, y, y0):
         # Overall model uncertainty
         # sigma = pm.HalfNormal('sigma', 3, shape=2)
         # sigma = 0.1
-        sigma = pm.HalfCauchy('sigma', 3)
+        # sigma = pm.HalfCauchy('sigma', 3)
 
         # Note that we access the distribution for the standard
         # deviations, and do not create a new random variable.
-        # dim = 2
-        # sd_dist = pm.HalfCauchy.dist(beta=2.5)
-        # packed_chol = pm.LKJCholeskyCov('chol_cov', n=dim, eta=1, sd_dist=sd_dist)
+        dim = 2
+        sd_dist = pm.HalfCauchy.dist(beta=2.5)
+        packed_chol = pm.LKJCholeskyCov('chol_cov', n=dim, eta=1, sd_dist=sd_dist)
         # compute the covariance matrix
-        # chol = pm.expand_packed_triangular(dim, packed_chol, lower=True)
+        chol = pm.expand_packed_triangular(dim, packed_chol, lower=True)
 
         # Extract the cov matrix and standard deviations
         # cov = tt.dot(chol, chol.T)
@@ -473,8 +473,8 @@ def sir_delta_model(x, y, y0):
         sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
         # sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
 
-        # y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
-        y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
+        y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
+        # y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
 
     return model
 

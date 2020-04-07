@@ -12,7 +12,7 @@ if __name__ == '__main__':
         #'Canada Alberta',
         #'Canada Ontario',
     ]
-    min_cases = 50
+    min_cases = 100
 
     delta_case = False
 
