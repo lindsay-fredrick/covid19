@@ -12,7 +12,7 @@ if __name__ == '__main__':
         #'Canada Alberta',
         #'Canada Ontario',
     ]
-    min_cases = 1
+    min_cases = 50
 
     delta_case = False
 
@@ -20,8 +20,8 @@ if __name__ == '__main__':
 
         for delta_case in [False, True]:
 
-            if country=='Canada British Columbia' and not delta_case:
-                continue
+            #if country=='Canada British Columbia' and not delta_case:
+            #    continue
 
             print()
             print('-' * len(country))

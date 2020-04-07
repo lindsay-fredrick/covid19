@@ -11,6 +11,10 @@ import os
 import pandas as pd
 from scipy.integrate import odeint
 import seaborn as sns
+import theano
+
+import scipy
+floatX = theano.config.floatX
 
 
 import joblib
@@ -63,7 +67,7 @@ def sig_model(x, y):
 
         # Priors for unknown model parameters
         alpha = pm.HalfNormal('alpha', sigma=1)
-        p0 = pm.Normal('p0', mu = y[0], sigma=1)
+        p0 = pm.Normal('p0', mu=y[0], sigma=1)
         beta = pm.HalfNormal('beta', sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
 
@@ -363,6 +367,30 @@ def get_country_sir(country, start_date='', end_date='', min_cases=10):
     return dates, np.arange(0, len(data)), susceptible / population, infected / population
 
 
+class DE(pm.ode.DifferentialEquation):
+    def _simulate(self, y0, theta):
+        # Initial condition comprised of state initial conditions and raveled sensitivity matrix
+        s0 = np.concatenate([y0, self._sens_ic])
+
+        # perform the integration
+        sol = scipy.integrate.solve_ivp(
+            fun=lambda t, Y: self._system(Y, t, tuple(np.concatenate([y0, theta]))),
+            t_span=[self._augmented_times.min(), self._augmented_times.max()],
+            y0=s0,
+            method='RK23',
+            t_eval=self._augmented_times[1:],
+            atol=1, rtol=1,
+            max_step=0.02).y.T.astype(floatX)
+
+        # The solution
+        y = sol[:, :self.n_states]
+
+        # The sensitivities, reshaped to be a sequence of matrices
+        sens = sol[0:, self.n_states:].reshape(self.n_times, self.n_states, self.n_p)
+
+        return y, sens
+
+
 def sir_delta_function(y, t, p):
     # 'constants'
     delta = p[0]  # rename to delta when testing
@@ -413,8 +441,9 @@ def sir_delta_model(x, y, y0):
     with pm.Model() as model:
 
         # Overall model uncertainty
-        sigma = pm.HalfNormal('sigma', 3, shape=2)
+        # sigma = pm.HalfNormal('sigma', 3, shape=2)
         # sigma = 0.1
+        sigma = pm.HalfCauchy('sigma', 3)
 
         # Note that we access the distribution for the standard
         # deviations, and do not create a new random variable.
@@ -444,7 +473,7 @@ def sir_delta_model(x, y, y0):
         sir_curves = sir_ode(y0=y0, theta=[delta, lmbda, beta])  # [beta, lmbda])
         # sir_curves = sir_ode(y0=y0, theta=[beta, lmbda])
 
-        #y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
+        # y_obs = pm.MvNormal('y_obs', mu=sir_curves, chol=chol, observed=y)
         y_obs = pm.Normal('y_obs', mu=sir_curves, sigma=sigma, observed=y)
 
     return model
