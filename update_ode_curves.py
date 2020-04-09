@@ -5,9 +5,9 @@ warnings.filterwarnings('ignore')
 
 if __name__ == '__main__':
     country_list = [
-        'Canada British Columbia',
+        #'Canada British Columbia',
         'Italy',
-        'Canada',
+        #'Canada',
         #'US',
         #'Canada Alberta',
         #'Canada Ontario',
@@ -16,9 +16,9 @@ if __name__ == '__main__':
 
     delta_case = False
 
-    for country in country_list:
+    for delta_case in [True]:
 
-        for delta_case in [False, True]:
+        for country in country_list:
 
             #if country=='Canada British Columbia' and not delta_case:
             #    continue
@@ -38,6 +38,10 @@ if __name__ == '__main__':
             x_train = x[:-1]
             x_test = x[-1:]
 
+            x_train_max = x_train[-1]
+            x_train_scale = x_train/x_train_max
+            x_test_scale = x_test/x_train_max
+
             sus_train = sus[:-1]
             sus_test = sus[-1:]
 
@@ -55,13 +59,13 @@ if __name__ == '__main__':
             print('Initializing Model')
             print()
             if delta_case:
-                sir = sir_delta_model(x_train, y_train, y0)
+                sir = sir_delta_model(x_train_scale, y_train, y0)
             else:
-                sir = sir_model(x_train, y_train, y0)
+                sir = sir_model(x_train_scale, y_train, y0)
 
             print('Training Model')
             print()
-            sir_trace = train_ode_model(sir, draws=1000, tune=500, cores=1)
+            sir_trace = train_ode_model(sir, draws=500, tune=500, cores=1)
 
             print('Making Predictions for Future Calls')
             print()
@@ -69,15 +73,16 @@ if __name__ == '__main__':
             last = len(x)
             extend = np.arange(last, last + num_days)
             x_updated = np.append(x, extend)
+            x_updated_scale = x_updated/x_train_max
             y_updated = np.zeros((x_updated.shape[0], y_train.shape[1]))
 
             if delta_case:
-                sir_pred = sir_delta_model(x_updated, y_updated, y0)
+                sir_pred = sir_delta_model(x_updated_scale, y_updated, y0)
             else:
-                sir_pred = sir_model(x_updated, y_updated, y0)
+                sir_pred = sir_model(x_updated_scale, y_updated, y0)
 
             with sir_pred:
-                y_hat = pm.sample_posterior_predictive(sir_trace[500:], samples=1000, progressbar=True)
+                y_hat = pm.sample_posterior_predictive(sir_trace[100:], samples=1000, progressbar=True)
 
             print()
             print('Saving Model')
